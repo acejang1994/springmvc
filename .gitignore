@@ -1,0 +1,17 @@
+.idea
+*.DS_Store
+
+bin
+target
+build/
+
+.classpath
+.project
+.settings
+
+# IntelliJ IDEA Files #
+
+*.iml
+*.ipr
+*.iws
+*.idea
