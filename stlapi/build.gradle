@@ -1,0 +1,160 @@
+
+apply plugin: 'war'
+apply plugin: 'com.bmuschko.cargo'
+apply plugin: 'org.akhikhl.gretty'
+
+buildscript {
+    repositories {
+        jcenter()
+    }
+
+    dependencies {
+        classpath 'com.bmuschko:gradle-cargo-plugin:2.0.3'
+        classpath 'org.akhikhl.gretty:gretty:1.1.8'
+    }
+
+}
+
+Properties props = new Properties()
+props.load(new FileInputStream(projectDir.toString() + "/src/test/resources/localhost.config.properties"))
+def local_portnum = new URI(props.get("endpoint").toString()).port
+def local_https_portnum = new URI(props.get("httpsEndpoint").toString()).port
+
+cargo {
+    containerId = 'tomcat7x'
+
+    // Note: cargo local stuff will still work for now, but please prefer gretty ("gradle appRun") for local instances
+    local {
+        installer {
+            installUrl = 'http://apache.osuosl.org/tomcat/tomcat-7/v7.0.57/bin/apache-tomcat-7.0.57.zip'
+            downloadDir = file("$buildDir/download")
+            extractDir = file("$buildDir/extract")
+        }
+        containerProperties {
+            // use a non-standard ajp port (not 9099) so as to not conflict with other tomcat instances
+            property 'cargo.tomcat.ajp.port', 9199
+            property 'cargo.servlet.port', local_portnum
+        }
+    }
+
+    remote {
+        hostname = 'localhost'
+        port = 8090
+        username = 'cargo'
+        password = '0BxLrz7zG4dqDX2q6vi4'
+    }
+}
+
+// use gretty to start a container instrumented with jacoco for calculation of integration test coverage
+gretty {
+    port = local_portnum
+    httpsPort = local_https_portnum
+    httpsEnabled = true
+    // supported values:
+    // 'jetty7', 'jetty8', 'jetty9', 'tomcat7', 'tomcat8'
+    servletContainer = 'tomcat7'
+
+    // automatically start up the container before the following task, and shut it down afterwards
+    integrationTestTask = 'integrationLocalWithContainer'
+}
+
+//Integration test suite
+def getFileByPattern(File dir, String pat, String stripDir) {
+    String path = ""
+    if (dir.isDirectory()) {
+        dir?.eachFileRecurse { file ->
+            if (file.path ==~ pat) {
+                path = file.getAbsolutePath().toString()
+            }
+        }
+        if (null != path && !path.isEmpty())
+            path = path?.substring(stripDir.length(), path?.length())
+    }
+    path
+}
+
+task integrationLocal(type: Test) {
+    group 'Verification'
+    description 'runs the integration tests against a local container'
+    
+    useTestNG() {
+        useDefaultListeners = true
+        def suiteFile = getFileByPattern(new File("$projectDir/src/test/resources/"), ".*-integration.xml", "$projectDir")
+        if (suiteFile) options.suites(suiteFile)
+    }
+    testLogging.showStandardStreams = true
+    beforeTest { descriptor ->
+        logger.lifecycle("RUNNING INTEGRATION TEST LOCALLY: " + descriptor)
+    }
+}
+
+task integrationLocalWithContainer(type: Test, dependsOn: integrationLocal) {
+    group 'Verification'
+    description 'use gretty to start a local container, then run the integrationLocal task, then stop container'
+
+}
+
+//Dependencies section:
+ext {
+    springVersion = "4.0.3.RELEASE"
+    springSecurityVersion = "3.2.5.RELEASE"
+    jacksonVersion = "2.4.3"
+    apacheHttpVersion = "4.3.3"
+}
+
+dependencies {
+
+    compile project(':stlcommon'),
+            "javax.servlet:javax.servlet-api:3.1.0",
+            "javax.ws.rs:jsr311-api:1.1.1",
+            "commons-codec:commons-codec:1.10",
+
+            //MySQL dependencies
+            'mysql:mysql-connector-java:5.1.6',
+            //Spring dependencies
+            "org.springframework:spring-aop:$springVersion",
+            "org.springframework:spring-aspects:$springVersion",
+            "org.springframework:spring-expression:$springVersion",
+            "org.springframework:spring-instrument:$springVersion",
+            "org.springframework:spring-instrument-tomcat:$springVersion",
+            "org.springframework:spring-beans:$springVersion",
+            "org.springframework:spring-context:$springVersion",
+            "org.springframework:spring-core:$springVersion",
+            "org.springframework:spring-web:$springVersion",
+            "org.springframework:spring-webmvc:$springVersion",
+            "org.springframework:spring-jdbc:$springVersion",
+            "org.springframework:spring-jms:$springVersion",
+            "org.springframework:spring-tx:$springVersion",
+            "org.springframework.security:spring-security-web:$springSecurityVersion",
+            "org.springframework.security:spring-security-core:$springSecurityVersion",
+            "org.springframework.security:spring-security-config:$springSecurityVersion",
+
+            //Jackson for JSON & XML API serialization
+            "com.fasterxml.jackson.core:jackson-databind:$jacksonVersion",
+            "com.fasterxml.jackson.core:jackson-annotations:$jacksonVersion",
+            "com.fasterxml.jackson.core:jackson-core:$jacksonVersion",
+            "com.fasterxml.jackson.dataformat:jackson-dataformat-xml:$jacksonVersion",
+            "com.fasterxml.jackson.jaxrs:jackson-jaxrs-json-provider:$jacksonVersion",
+            "com.fasterxml.jackson.module:jackson-module-jaxb-annotations:$jacksonVersion",
+            "com.fasterxml.jackson.module:jackson-module-scala_2.10:$jacksonVersion",
+
+            //Swagger for API documentation, & dependent JARs
+            "com.wordnik:swagger-core_2.10:1.3.2",
+            "com.wordnik:swagger-annotations:1.3.2",
+            "com.knappsack:swagger4spring-web:0.3.3",
+            "org.scala-lang:scala-library:2.11.4",
+            "org.javassist:javassist:3.17.1-GA",
+            //Needed for hibernate bean validation which was added to support swagger
+            "javax.validation:validation-api:1.1.0.Final",
+            "org.hibernate:hibernate-validator:5.1.0.Final",
+            "org.hibernate:hibernate-validator-annotation-processor:5.1.0.Final",
+            "org.hibernate:hibernate-validator-cdi:5.1.0.Final"
+
+    testCompile "org.testng:testng:6.8.8",
+            "org.apache.httpcomponents:httpclient:$apacheHttpVersion",
+            "org.apache.httpcomponents:httpcore:$apacheHttpVersion",
+            "org.apache.httpcomponents:httpmime:$apacheHttpVersion",
+            "org.springframework:spring-test:$springVersion"
+
+    runtime "javax.servlet:jstl:1.2"
+}
